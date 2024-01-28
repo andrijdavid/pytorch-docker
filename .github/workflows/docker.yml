@@ -1,0 +1,81 @@
+name: docker-build
+
+on:
+  push:
+    branches:
+      - 'main'
+  schedule:
+    - cron: "0 0 * * *"
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      -
+        name: Login to Quay.io
+        uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAYIO_USERNAME }}
+          password: ${{ secrets.QUAYIO_TOKEN }}
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Check image tag exists
+        id: image_exists
+        continue-on-error: true 
+        uses: cloudposse/github-action-docker-image-exists@main
+        with:
+            registry: quay.io
+            organization: andrijdavid
+            repository: pytorch
+            login: ${{ secrets.QUAYIO_USERNAME }}
+            password: ${{ secrets.QUAYIO_TOKEN }}
+            tag: ${{ steps.split.outputs.fragment }}
+      -
+        name: Set up QEMU
+        if: steps.image_exists.outcome != 'success'
+        uses: docker/setup-qemu-action@v2
+        with:
+          image: tonistiigi/binfmt:latest
+          platforms: all
+      -
+        name: Set up Docker Buildx
+        if: steps.image_exists.outcome != 'success'
+        uses: docker/setup-buildx-action@v2
+      -
+        name: Build and push
+        if: steps.image_exists.outcome != 'success'
+        uses: docker/build-push-action@v5
+        with:
+          push: true
+          load: true
+          sbom: true
+          platforms: linux/amd64
+          tags: quay.io/andrijdavid/pytorch:latest, quay.io/andrijdavid/pytorch:${{ steps.split.outputs.fragment }}, quay.io/andrijdavid/pytorch:${{ steps.nym.outputs.tag_name }}
+          build-args: |
+            RUST_VER=1.74
+            VER=${{ steps.nym.outputs.tag_name }}
+
+      - name: Run Snyk to check Docker image for vulnerabilities
+        if: steps.image_exists.outcome != 'success'
+        id: snyk_scan
+        continue-on-error: true
+        uses: snyk/actions/docker@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          image: quay.io/andrijdavid/pytorch:latest
+          sarif: true
+          args: --file=Dockerfile --sarif-file-output=snyk.sarif
+
+      - name: Upload result to GitHub Code Scanning
+        if: steps.snyk_scan.outcome == 'success'
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: snyk.sarif
+          
