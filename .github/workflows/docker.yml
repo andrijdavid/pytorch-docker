@@ -53,29 +53,10 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           push: true
-          load: true
+          load: false
           sbom: true
           platforms: linux/amd64
-          tags: quay.io/andrijdavid/pytorch:latest, quay.io/andrijdavid/pytorch:${{ steps.split.outputs.fragment }}, quay.io/andrijdavid/pytorch:${{ steps.nym.outputs.tag_name }}
+          tags: quay.io/andrijdavid/pytorch:latest
           build-args: |
             RUST_VER=1.74
-            VER=${{ steps.nym.outputs.tag_name }}
-
-      - name: Run Snyk to check Docker image for vulnerabilities
-        if: steps.image_exists.outcome != 'success'
-        id: snyk_scan
-        continue-on-error: true
-        uses: snyk/actions/docker@master
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        with:
-          image: quay.io/andrijdavid/pytorch:latest
-          sarif: true
-          args: --file=Dockerfile --sarif-file-output=snyk.sarif
-
-      - name: Upload result to GitHub Code Scanning
-        if: steps.snyk_scan.outcome == 'success'
-        uses: github/codeql-action/upload-sarif@v2
-        with:
-          sarif_file: snyk.sarif
           
